@@ -1,0 +1,10 @@
+[myhosts]
+192.168.1.18
+
+[myhosts:vars]
+ansible_connection=winrm
+ansible_user=taskadmin
+ansible_password={{ vault_ansible_password }}
+ansible_winrm_transport=basic
+ansible_winrm_server_cert_validation=ignore
+

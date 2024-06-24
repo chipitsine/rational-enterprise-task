@@ -1,0 +1,12 @@
+<service>
+        <id>rational-nginx</id>
+        <name>nginx</name>
+        <description>nginx</description>
+        <executable>c:\rational\nginx-{{ nginx_version }}\nginx.exe</executable>
+        <arguments>-c c:\rational\nginx-{{ nginx_version }}\conf\nginx.conf</arguments>
+        <workingdirectory>c:\rational\nginx-{{ nginx_version }}</workingdirectory>
+        <onfailure action="restart" delay="10 sec"/>
+        <onfailure action="restart" delay="20 sec"/>
+        <logpath>c:\rational</logpath>
+        <logmode>roll</logmode>
+</service>

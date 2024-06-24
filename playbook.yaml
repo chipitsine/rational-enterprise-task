@@ -1,0 +1,105 @@
+---
+- name: Update web servers
+  hosts: myhosts
+  vars:
+    nginx_version: 1.27.0
+    winsw_version: v3.0.0-alpha.11
+
+  tasks:
+
+  - name: Create directory structure
+    ansible.windows.win_file:
+      path: c:\rational
+      state: directory
+
+  - name: Download nginx archive
+    ansible.windows.win_get_url:
+      url: https://nginx.org/download/nginx-{{ nginx_version }}.zip
+      dest: c:\rational\nginx-{{ nginx_version }}.zip
+
+  - name: Download winsw binary
+    ansible.windows.win_get_url:
+      url: https://github.com/winsw/winsw/releases/download/{{ winsw_version }}/WinSW-x64.exe
+      dest: c:\rational\WinSW-x64.exe
+
+  - name: Check whether nginx is unpacked
+    ansible.windows.win_stat:
+      path: c:\rational\nginx-{{ nginx_version }}
+    register: extracted_nginx
+
+  - name: Unzip nginx
+    community.windows.win_unzip:
+      src: c:\rational\nginx-{{ nginx_version }}.zip
+      dest: c:\rational
+    when: not extracted_nginx.stat.exists
+
+  - name: Copy CA cert
+    ansible.windows.win_copy:
+      src: files/ca.pem
+      dest: c:\rational\ca.pem
+
+  - name: Import CA certificate
+    ansible.windows.win_certificate_store:
+      path: c:\rational\ca.pem
+      state: present
+      store_name: Root
+
+  - name: Copy server cert
+    ansible.windows.win_copy:
+      src: files/server.pem
+      dest: c:\rational\rational-certificate.pem
+
+  - name: Extract SSL private key
+    ansible.windows.win_copy:
+      content: '{{ vault_private_key }}'
+      dest: c:\rational\rational-key.pem
+    no_log: true
+
+  - name: Copy nginx.conf
+    ansible.windows.win_copy:
+      src: files/nginx.conf
+      dest: c:\rational\nginx-{{ nginx_version }}\conf\nginx.conf
+
+  - name: Prepate winsw config
+    ansible.builtin.template:
+       src: templates/nginx.j2
+       dest: c:\rational\nginx.xml
+
+  - name: Check if someone is listening on 443
+    ansible.windows.win_powershell:
+      script: |
+        (Get-NetTCPConnection -LocalPort 443 -ErrorAction Continue).Count
+    register: check_listen
+
+  - name: Check status of rational-nginx service
+    ansible.windows.win_service:
+      name: rational-nginx
+    register: service_installed
+
+  - name: Install service
+    ansible.windows.win_command:
+      cmd: 'c:\rational\WinSW-x64.exe install nginx.xml'
+      chdir: c:\rational
+    when: (not service_installed.exists) and (check_listen.output[0] == 0)
+    register: install_service
+
+  - name: Start service
+    ansible.windows.win_command:
+      cmd: 'c:\rational\WinSW-x64.exe start nginx.xml'
+      chdir: c:\rational
+    when: install_service.changed
+
+  - name: Fail if service does not exist and 443 port is bound
+    ansible.builtin.fail:
+      msg: No service found, but someone is bound to 443
+    when: (not service_installed.exists) and (check_listen.output[0] == 1)
+
+  - name: Firewall rule to allow rational-nginx on port 443
+    community.windows.win_firewall_rule:
+      name: rational-nginx
+      localport: 443
+      action: allow
+      direction: in
+      protocol: tcp
+      state: present
+      enabled: yes
